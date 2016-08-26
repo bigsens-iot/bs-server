@@ -52,8 +52,18 @@ GatewayServer.prototype.readMessage = function(ws, msg) {
 		data = msg.data;
 	switch(cmd) {
 		case Message.GATEWAY_INFO:
-			this.gateways[data.guid] = ws;
+			ws.gatewayGuid = data.guid;
+			this.gateways[data.guid] = { services : {}, sock : ws };
 			this.emit('gatewayConnect', ws, data);
+		break;
+
+		case Message.SERVICE_ANNCE:
+			/*var guid = ws.gatewayGuid;
+			if(guid && this.gateway[guid]) {
+				var serviceGuid = data.guid;
+				this.gateway[guid].services[serviceGuid] = data;
+			}*/
+			this.emit('serviceAnnounce', ws, data);
 		break;
 		// etc.
 	}
@@ -115,8 +125,12 @@ function main() {
 		
 		// TODO: Add actions with gateway.
 		
-		
-		
+	});
+
+	gatewayServer.on('serviceAnnounce', function(ws, serviceInfo) {
+
+		console.log('Service %s announce for gateway %s', serviceInfo.name, ws.gatewayGuid);
+
 	});
 
 	gatewayServer.start();
