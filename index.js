@@ -1,8 +1,8 @@
 
 /*
  * Copyright (c) 2016, Bigsens, LLC
- * Gateway Server - example implementation on remote side, eg. remote server.
- * Handles all messages from SBC's Service Gateway.
+ * Machine Server - example implementation on remote side, eg. remote server.
+ * Manage all machines connected to the server. Handle messages from machines.
  * Author: Constantin Alexandrov
  */
 
@@ -21,76 +21,117 @@ function fmtJson(json) {
 	return JSON.stringify(json, null, 2);
 }
 
-function GatewayServer(port) {
-	this.port = port;
-	this.wss = null;
-	this.ws = null;
-	this.gateways = {};
+
+/*
+ * Example of the machine object
+ */
+
+function Machine(ws, info) {
+
+	this.ws = ws;
+	this.name = 'Home gateway';
+
+	this.info = info;
+	this.guid = info.guid;
+
+	// For machine object identification from socket, as example
+	this.ws.guid = this.guid;
+
+	// Example fields
+	this.services = {};
+	this.devices = {};
+
 }
 
-util.inherits(GatewayServer, EventEmitter);
+Machine.prototype.getGuid = function() {
+	return this.guid;
+}
 
-GatewayServer.prototype.start = function() {
+// Send message to the current machine
+Machine.prototype.sendMessage = function(msg) {
+	this.ws.send(msg);
+}
+
+/*
+ * Example of the machine server
+ */
+
+function MachineServer(port) {
+	this.port = port;
+	this.wss = null;
+
+	this.machinesPool = {}; // key : machine uuid, value : machine object
+}
+
+util.inherits(MachineServer, EventEmitter);
+
+
+MachineServer.prototype.getMachineByGuid = function(guid) {
+	return this.machinesPool[guid];
+}
+
+MachineServer.prototype.start = function() {
 	var self = this;
 	var wss = this.wss = new WebSocketServer({ port: this.port });
+
 	wss.on('connection', function(ws) {
-		self.ws = ws;
-		console.log('New connection'); // But who is?
+
+		console.log('New connection'); // But who is? 
+
+		// Wait for identification messages
 		ws.on('message', function(message) {
 			try {
 				var msg = _decodeMessage(message);
-				
-				console.log('Incoming message %s', fmtJson(msg));
-
 				self.readMessage(ws, msg);
 			}
 			catch(err) {
 				console.error('Message handle error', err);
 			}
 		});
-		self.emit('onConnect', ws);
+
 	});
-	console.log('Gateway Server listen on port', this.port);
+	console.log('Machine server listen on port', this.port);
 
 }
 
-GatewayServer.prototype.readMessage = function(ws, msg) {
+MachineServer.prototype.readMessage = function(ws, msg) {
 	var cmd = msg.cmd,
 		data = msg.data;
-	switch(cmd) {
-	
-		case Message.MACHINE_CONNECT:
-		console.log('MACHINE_CONNECT =', data);
-		break;
 
-		// This message will not be seen by server look at socket onerror
-		//case Message.MACHINE_DISCONNECT:
-		//break;
+	switch(cmd) {
 
 		case Message.MACHINE_INFO:
-			ws.gatewayGuid = data.guid;
-			this.gateways[data.guid] = { services : {}, sock : ws };
+			// Create the machine object
+			var machine = new Machine(ws, data);
+
+			this.machinesPool[machine.getGuid()] = machine;
+
 			this.emit('machineInfo', ws, data);
 		break;
 
 		case Message.SERVICE_ANNCE:
-			/*var guid = ws.gatewayGuid;
-			if(guid && this.gateway[guid]) {
+			/*var machineGuid = ws.guid;
+			if(machineGuid && this.machinesPool[machineGuid]) {
 				var serviceGuid = data.guid;
-				this.gateway[guid].services[serviceGuid] = data;
+				this.machinesPool[machineGuid].services[serviceGuid] = data;
 			}*/
+
 			this.emit('serviceAnnounce', ws, data);
 		break;
 
 		case Message.DEVICE_LIST:
 			this.emit('deviceList', ws, data);
 		break;
-		
+
+		// This message will not be seen by server look at socket onerror.
+		//case Message.MACHINE_DISCONNECT:
+		//break;
+
 		// etc.
 	}
 }
 
-GatewayServer.prototype.sendMessage = function(ws, msg) {
+MachineServer.prototype.sendMessage = function(ws, msg) {
 	ws.send(msg);
 }
 
@@ -102,19 +143,22 @@ var _encodeMessage = function(data) {
 	return JSON.stringify(data);
 }
 
-GatewayServer.prototype.getGatewayByGuid = function(guid) {
-	// ...
+function fmtJson(json) {
+	return JSON.stringify(json, null, 2);
 }
-
 
 /*
  * Main
  */
 
 function main() {
-	var gatewayServer = new GatewayServer(8080);
 
-	gatewayServer.on('machineInfo', function(ws, machineInfo) {
+	// Create machine server on port 8080
+	var machineServer = new MachineServer(8080);
+
+	//
+
+	machineServer.on('machineInfo', function(ws, machineInfo) {
 
 		/*
 		Message.MACHINE_INFO = {
@@ -143,25 +187,36 @@ function main() {
 		*/
 
 		console.log('Machine with guid %s connected', machineInfo.guid);
-		
+
 		// TODO: Add actions with machine.
-		
-	});
 
-	gatewayServer.on('serviceAnnounce', function(ws, serviceInfo) {
+		// Get machine
+		var machine = machineServer.getMachineByGuid('a567e912-7ac9-471c-83ab-e8e22f992d8a');
 
-		console.log('Service %s announce for gateway %s', serviceInfo.name, ws.gatewayGuid);
+		setInterval(function() {
 
-	});
-	
-	gatewayServer.on('deviceList', function(ws, list) {
+			// Get device list from machine, response will be in the same message - DEVICE_LIST
+			machine.sendMessage(_encodeMessage({ cmd : Message.DEVICE_LIST }));
 
-		console.log('Device list %s for gateway %j', list, ws.gatewayGuid);
+		}, 5000);
 
 	});
 
-	gatewayServer.start();
+	// Response from DEVICE_LIST
+	machineServer.on('deviceList', function(ws, deviceList) {
+		console.log('Device list %s for machine %s', fmtJson(deviceList), ws.guid);
+	});
+
+	// Data from SERVICE_ANNCE
+	machineServer.on('serviceAnnounce', function(ws, serviceInfo) {
+		console.log('Service %s announce for machine %s', serviceInfo.name, ws.guid);
+	});
+
+	// Run machine server
+	machineServer.start();
+
 }
 
 main();
-	
+
+
