@@ -17,6 +17,10 @@ var Message = P.Message,
 	DeviceState = P.DeviceState,
 	DeviceType = P.DeviceType;
 
+function fmtJson(json) {
+	return JSON.stringify(json, null, 2);
+}
+
 function GatewayServer(port) {
 	this.port = port;
 	this.wss = null;
@@ -35,6 +39,9 @@ GatewayServer.prototype.start = function() {
 		ws.on('message', function(message) {
 			try {
 				var msg = _decodeMessage(message);
+				
+				console.log('Incoming message %s', fmtJson(msg));
+
 				self.readMessage(ws, msg);
 			}
 			catch(err) {
@@ -51,10 +58,19 @@ GatewayServer.prototype.readMessage = function(ws, msg) {
 	var cmd = msg.cmd,
 		data = msg.data;
 	switch(cmd) {
-		case Message.GATEWAY_INFO:
+	
+		case Message.MACHINE_CONNECT:
+		console.log('MACHINE_CONNECT =', data);
+		break;
+
+		// This message will not be seen by server look at socket onerror
+		//case Message.MACHINE_DISCONNECT:
+		//break;
+
+		case Message.MACHINE_INFO:
 			ws.gatewayGuid = data.guid;
 			this.gateways[data.guid] = { services : {}, sock : ws };
-			this.emit('gatewayConnect', ws, data);
+			this.emit('machineInfo', ws, data);
 		break;
 
 		case Message.SERVICE_ANNCE:
@@ -65,6 +81,11 @@ GatewayServer.prototype.readMessage = function(ws, msg) {
 			}*/
 			this.emit('serviceAnnounce', ws, data);
 		break;
+
+		case Message.DEVICE_LIST:
+			this.emit('deviceList', ws, data);
+		break;
+		
 		// etc.
 	}
 }
@@ -93,10 +114,10 @@ GatewayServer.prototype.getGatewayByGuid = function(guid) {
 function main() {
 	var gatewayServer = new GatewayServer(8080);
 
-	gatewayServer.on('gatewayConnect', function(ws, gatewayInfo) {
+	gatewayServer.on('machineInfo', function(ws, machineInfo) {
 
 		/*
-		Message.GATEWAY_INFO = {
+		Message.MACHINE_INFO = {
 		    "guid": "a567e912-7ac9-471c-83ab-e8e22f992d8a",
 		    "hostname": "bigsens",
 		    "cpuinfo": { ... }
@@ -121,15 +142,21 @@ function main() {
 		}
 		*/
 
-		console.log('Gateway with guid %s connected', gatewayInfo.guid);
+		console.log('Machine with guid %s connected', machineInfo.guid);
 		
-		// TODO: Add actions with gateway.
+		// TODO: Add actions with machine.
 		
 	});
 
 	gatewayServer.on('serviceAnnounce', function(ws, serviceInfo) {
 
 		console.log('Service %s announce for gateway %s', serviceInfo.name, ws.gatewayGuid);
+
+	});
+	
+	gatewayServer.on('deviceList', function(ws, list) {
+
+		console.log('Device list %s for gateway %j', list, ws.gatewayGuid);
 
 	});
 
