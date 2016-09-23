@@ -81,6 +81,9 @@ MachineServer.prototype.start = function() {
 		// Wait for identification messages
 		ws.on('message', function(message) {
 			try {
+				
+				console.log('PACKET = %j', message);
+				
 				var msg = _decodeMessage(message);
 				self.readMessage(ws, msg);
 			}
@@ -97,6 +100,8 @@ MachineServer.prototype.start = function() {
 MachineServer.prototype.readMessage = function(ws, msg) {
 	var cmd = msg.cmd,
 		data = msg.data;
+	
+	console.log(cmd + ' = ' + data);
 
 	switch(cmd) {
 
@@ -121,6 +126,10 @@ MachineServer.prototype.readMessage = function(ws, msg) {
 
 		case Message.DEVICE_LIST:
 			this.emit('deviceList', ws, data);
+		break;
+		
+		case Message.DEVICE_STATE:
+			this.emit('deviceState', ws, data);
 		break;
 
 		// This message will not be seen by server look at socket onerror.
@@ -196,7 +205,7 @@ function main() {
 		setInterval(function() {
 
 			// Get device list from machine, response will be in the same message - DEVICE_LIST
-			machine.sendMessage(_encodeMessage({ cmd : Message.DEVICE_LIST }));
+			//machine.sendMessage(_encodeMessage({ cmd : Message.DEVICE_LIST }));
 
 		}, 5000);
 
@@ -205,6 +214,11 @@ function main() {
 	// Response from DEVICE_LIST
 	machineServer.on('deviceList', function(ws, deviceList) {
 		console.log('Device list %s for machine %s', fmtJson(deviceList), ws.guid);
+	});
+	
+	// Event for DEVICE_STATE
+	machineServer.on('deviceState', function(ws, deviceState) {
+		console.log('Device state %s for machine %s', fmtJson(deviceState), ws.guid);
 	});
 
 	// Data from SERVICE_ANNCE
